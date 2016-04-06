@@ -12,12 +12,26 @@ import zipfile
 import tempfile
 import shutil
 import time
-from lxml import etree
-from cStringIO import StringIO
 from django.template import Template
 from django.utils.encoding import smart_str
 from webodt.conf import WEBODT_TEMPLATE_PATH, WEBODT_ODF_TEMPLATE_PREPROCESSORS, WEBODT_TMP_DIR
 from webodt.preprocessors import list_preprocessors
+
+from django import template
+from django.template.defaultfilters import stringfilter
+from django.utils.safestring import mark_safe
+from django.utils.text import normalize_newlines
+
+def linebreaksodt(value, autoescape=None):
+    """
+    Converts all newlines in a piece of plain text to XML line breaks
+    (``<text:line-break />``).
+    """
+    autoescape = autoescape and not isinstance(value, SafeData)
+    value = normalize_newlines(value)
+    if autoescape:
+        value = escape(value)
+    return mark_safe(value.replace('\n', '<text:line-break />'))
 
 
 class HTMLTemplate(object):
@@ -45,8 +59,7 @@ class HTMLTemplate(object):
         template = Template(self.get_content())
         content = template.render(context)
         # create and return .html file
-        lowlevel_fd, tmpfile = tempfile.mkstemp(suffix='.html', dir=WEBODT_TMP_DIR)
-        os.close(lowlevel_fd)
+        _, tmpfile = tempfile.mkstemp(suffix='.html', dir=WEBODT_TMP_DIR)
         fd = open(tmpfile, 'w')
         fd.write(smart_str(content))
         fd.close()
@@ -87,44 +100,23 @@ class ODFTemplate(object):
         """ Return the content.xml file contents """
         return self.handler.get_content_xml()
 
-    def get_meta_xml(self):
-        """ Return the meta.xml file contents """
-        return self.handler.get_meta_xml()
-
-    def get_styles_xml(self):
-        """ Return the styles.xml file contents """
-        return self.handler.get_styles_xml()
-
-    def get_file(self,path):
-        return self.handler.get_file(path)
-
-    def get_files_to_process(self):
-        #parse manifest
-        paths = []
-        ee = etree.parse(StringIO(self.get_file("META-INF/manifest.xml")))
-        for xml_ref in ee.findall("//{urn:oasis:names:tc:opendocument:xmlns:manifest:1.0}file-entry[@{urn:oasis:names:tc:opendocument:xmlns:manifest:1.0}media-type='text/xml']"):
-            paths.append(xml_ref.attrib['{urn:oasis:names:tc:opendocument:xmlns:manifest:1.0}full-path'])
-        return paths
-
     def render(self, context, delete_on_close=True):
         """ Return rendered ODF (webodt.ODFDocument instance)"""
         # create temp output directory
         tmpdir = tempfile.mkdtemp()
         self.handler.unpack(tmpdir)
         # store updated content.xml
-        for f_to_process in self.get_files_to_process():
-            template = self.get_file(f_to_process)
-            for preprocess_func in list_preprocessors(self.preprocessors):
-                template = preprocess_func(template)
-            template = Template(template)
-            xml_result = template.render(context)
-            filename = os.path.join(tmpdir, f_to_process)
-            result_fd = open(filename, 'w')
-            result_fd.write(smart_str(xml_result))
-            result_fd.close()
-
-        lowlevel_fd, tmpfile = tempfile.mkstemp(suffix='.odt', dir=WEBODT_TMP_DIR)
-        os.close(lowlevel_fd)
+        template_content = self.get_content_xml()
+        for preprocess_func in list_preprocessors(self.preprocessors):
+            template_content = preprocess_func(template_content)
+        template = Template(template_content)
+        content_xml = template.render(context)
+        content_filename = os.path.join(tmpdir, 'content.xml')
+        content_fd = open(content_filename, 'w', encoding='utf-8')
+        content_fd.write(linebreaksodt(content_xml.strip()))
+        content_fd.close()
+        # create .odt file
+        _, tmpfile = tempfile.mkstemp(suffix='.odt', dir=WEBODT_TMP_DIR)
         tmpzipfile = zipfile.ZipFile(tmpfile, 'w')
         for root, _, files in os.walk(tmpdir):
             for fn in files:
@@ -150,24 +142,6 @@ class _PackedODFHandler(object):
         fd.close()
         return data
 
-    def get_meta_xml(self):
-        fd = zipfile.ZipFile(self.filename)
-        data = fd.read('meta.xml')
-        fd.close()
-        return data
-
-    def get_styles_xml(self):
-        fd = zipfile.ZipFile(self.filename)
-        data = fd.read('styles.xml')
-        fd.close()
-        return data
-
-    def get_file(self, path):
-        fd = zipfile.ZipFile(self.filename)
-        data = fd.read(path)
-        fd.close()
-        return data
-
     def unpack(self, dstdir):
         fd = zipfile.ZipFile(self.filename)
         fd.extractall(path=dstdir)
@@ -185,42 +159,25 @@ class _UnpackedODFHandler(object):
         fd.close()
         return data
 
-    def get_meta_xml(self):
-        fd = open(os.path.join(self.dirname, 'meta.xml'), 'r')
-        data = fd.read()
-        fd.close()
-        return data
-
-    def get_styles_xml(self):
-        fd = open(os.path.join(self.dirname, 'styles.xml'), 'r')
-        data = fd.read()
-        fd.close()
-        return data
-
-    def get_file(self,path):
-        fd = open(os.path.join(self.dirname, path), 'r')
-        data = fd.read()
-        fd.close()
-        return data
-
     def unpack(self, dstdir):
         os.rmdir(dstdir)
         shutil.copytree(self.dirname, dstdir)
 
 
-class Document(file):
+class Document:
 
-    def __init__(self, filename, mode='rb', buffering=1, delete_on_close=True):
-        file.__init__(self, filename, mode, buffering)
+    def __init__(self, filename, mode='r+', buffering=1, delete_on_close=True):
+        self.file = open(filename, mode)
         self.delete_on_close = delete_on_close
 
+    def delete(self):
+        self.file.close()
+        os.remove(self.file.name)
+
     def close(self):
-        file.close(self)
+        self.file.close()
         if self.delete_on_close:
             self.delete()
-
-    def delete(self):
-        os.unlink(self.name)
 
 
 class HTMLDocument(Document):
@@ -241,17 +198,5 @@ class ODFDocument(Document):
     def get_content_xml(self):
         fd = zipfile.ZipFile(self.name)
         data = fd.read('content.xml')
-        fd.close()
-        return data
-
-    def get_meta_xml(self):
-        fd = zipfile.ZipFile(self.name)
-        data = fd.read('meta.xml')
-        fd.close()
-        return data
-
-    def get_styles_xml(self):
-        fd = zipfile.ZipFile(self.name)
-        data = fd.read('styles.xml')
         fd.close()
         return data

@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
-from django.template import Context
-from django.utils import unittest
-from webodt.converters.abiword import AbiwordODFConverter
-from webodt.converters.googledocs import GoogleDocsODFConverter
-from webodt.converters.openoffice import OpenOfficeODFConverter
-from webodt.converters.xhtml2pdf_converter import XHTML2PDFConverter
-import datetime
 import os
+from django.utils import unittest
 import webodt
+from django.template import Context
+from webodt.converters.abiword import AbiwordODFConverter
+from webodt.converters.openoffice import OpenOfficeODFConverter
+from webodt.converters.googledocs import GoogleDocsODFConverter
 
 
 class ODFTemplateTest(unittest.TestCase):
@@ -107,24 +105,6 @@ class _ConverterTest(object):
         self.assertFalse(os.path.isfile(document.name))
         self.assertFalse(os.path.isfile(html_document.name))
 
-    def test_convert_utf8(self):
-        template = webodt.ODFTemplate('russian_sample.odt')
-        document = template.render(Context({'ts': datetime.datetime.now()}))
-        converter = self.Converter()
-        pdf_document = converter.convert(document, 'pdf')
-        pdf_document.read()
-
-    def test_header_and_footer(self):
-        """ Check that data in header and footer are handled correctly """
-        template = webodt.ODFTemplate('header_sample.odt')
-        document = template.render(Context(self.context))
-        converter = self.Converter()
-        html_document = converter.convert(document, 'html')
-        html_data = html_document.read()
-        self.assertTrue('John Doe' in html_data)
-        document.close()
-        html_document.close()
-
     def test_html_converter(self):
         template = webodt.HTMLTemplate('sample.html')
         document = template.render(Context(self.context), delete_on_close=False)
@@ -137,7 +117,6 @@ class _ConverterTest(object):
         odt_document.close()
         odt_document.delete()
 
-
 class AbiwordODFConverterTest(_ConverterTest, unittest.TestCase):
     Converter = AbiwordODFConverter
 
@@ -148,20 +127,3 @@ class GoogleDocsODFConverterTest(_ConverterTest, unittest.TestCase):
 
 class OpenOfficeODFConverterTest(_ConverterTest, unittest.TestCase):
     Converter = OpenOfficeODFConverter
-
-
-class XHTML2PDFConverterTest(unittest.TestCase):
-
-    def test_html_converter(self):
-        context = {
-            'username': 'John Doe',
-            'balance': 10.01
-        }
-        template = webodt.HTMLTemplate('sample.html')
-        document = template.render(Context(context), delete_on_close=False)
-        converter = XHTML2PDFConverter()
-        pdf_document = converter.convert(document, 'pdf', delete_on_close=False)
-        document.close()
-        document.delete()
-        pdf_document.close()
-        pdf_document.delete()

@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
-import uno
-import unohelper
-from com.sun.star.beans import PropertyValue
+import uno, unohelper
 from com.sun.star.io import IOException, XOutputStream, XSeekable, XInputStream
+from com.sun.star.beans import PropertyValue
 from webodt import Document
-from webodt.conf import WEBODT_OPENOFFICE_SERVER
 from webodt.converters import ODFConverter
-from webodt.helpers import guess_format_and_filename
+from webodt.conf import WEBODT_OPENOFFICE_SERVER
 
 OOO_CONNECTION = 'socket,host=%s,port=%s;urp;StarOffice.ComponentContext' % WEBODT_OPENOFFICE_SERVER
 
@@ -15,7 +13,7 @@ class OpenOfficeODFConverter(ODFConverter):
 
 
     def convert(self, document, format=None, output_filename=None, delete_on_close=True):
-        output_filename, format = guess_format_and_filename(output_filename, format)
+        output_filename, format = self._guess_format_and_filename(output_filename, format)
         ### Do the OpenOffice component dance
         context = uno.getComponentContext()
         resolver = context.ServiceManager.createInstanceWithContext('com.sun.star.bridge.UnoUrlResolver', context)

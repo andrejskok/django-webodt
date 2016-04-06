@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 from django.utils.importlib import import_module
-from cStringIO import StringIO
 from lxml import etree
 import re
+from io import StringIO, BytesIO
 
 
 def list_preprocessors(preprocessors):
@@ -26,6 +26,7 @@ def unescape_templatetags_preprocessor(template_content):
         ('&gt;', '>'),
         ('&amp;', '&'),
     ]
+    template_content = template_content.decode()
     for from_sym, to_sym in replace_map:
         for include_text in re.findall(r'{%(.+?)%}', template_content):
             new_include_text = include_text.replace(from_sym, to_sym)
@@ -40,7 +41,7 @@ def unescape_templatetags_preprocessor(template_content):
     return template_content
 
 def xmlfor_preprocessor(template_content):
-    tree = etree.parse(StringIO(template_content))
+    tree = etree.parse(BytesIO(template_content))
 
     # 1. search for xmlfor pairs
     re_xmlfor = re.compile(r'{%\s*xmlfor([^%]*)%}')
@@ -65,7 +66,7 @@ def xmlfor_preprocessor(template_content):
         if re_endxmlfor_match:
             try:
                 start_el, forloop_clause = xmlfor_starts.pop()
-            except IndexError, e:
+            except e:
                 raise ValueError('Unexpected {%% endxmlfor %%} tag near %s' % el.text)
             xmlfor_pairs.append((start_el, el, forloop_clause))
             el.text = re_endxmlfor.sub('', el.text)
@@ -74,7 +75,7 @@ def xmlfor_preprocessor(template_content):
         if re_endxmlfor_match:
             try:
                 start_el, forloop_clause = xmlfor_starts.pop()
-            except IndexError, e:
+            except e:
                 raise ValueError('Unexpected {%% endxmlfor %%} tag near %s' % el.tail)
             xmlfor_pairs.append((start_el, el.getparent(), forloop_clause))
             el.tail = re_endxmlfor.sub('', el.tail)
@@ -108,7 +109,7 @@ def _find_common_ancestor(tag1, tag2):
             return ancestor
 
 def _tree_to_string(tree):
-    output = StringIO()
+    output = BytesIO()
     tree.write(output)
     output.seek(0)
     return output.read()
